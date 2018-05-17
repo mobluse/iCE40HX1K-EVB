@@ -21,6 +21,7 @@
     http://www.micron.com/~/media/documents/products/data-sheet/nor-flash/serial-nor/n25q/n25q_32mb_3v_65nm.pdf
     http://www.ftdichip.com/Support/Documents/AppNotes/AN_108_Command_Processor_for_MPSSE_and_MCU_Host_Bus_Emulation_Modes.pdf
     https://www.olimex.com/Products/FPGA/iCE40/iCE40HX1K-EVB/
+    https://www.olimex.com/Products/FPGA/iCE40/iCE40HX8K-EVB/
     https://github.com/Marzogh/SPIFlash
 */
 
@@ -34,33 +35,30 @@
 #define BBIT (PINE & B00000100)!=0    // Check if the button has been pressed 
 #define BUTTONINPUT DDRE &= B11111011 // Initialize the port
 
-#define LED 17
+#define LED  17 // 14 for Rev.A, 17 for Rev.A3 and Rev.B
 #define CDONE 3
 #define RESET 2
 #define UEXT_POWER 8
-#define CS  13
+#define CS   13
 
 //commands list
-#define READ_ID   0x9F
-#define PWR_UP    0xAB
-#define PWR_DOWN  0xB9
-#define WR_EN   0x06
-#define BULK_ERASE  0xC7
-#define SEC_ERASE 0xd8
-#define PROG    0x02
-#define READ    0x03
-#define READ_ALL    0x83
-#define CMD_ERROR 0xee
-#define READY   0x44
-#define EMPTY    0x45
+#define READ_ID    0x9F
+#define PWR_UP     0xAB
+#define PWR_DOWN   0xB9
+#define WR_EN      0x06
+#define BULK_ERASE 0xC7
+#define SEC_ERASE  0xd8
+#define PROG       0x02
+#define READ       0x03
+#define READ_ALL   0x83
+#define CMD_ERROR  0xee
+#define READY      0x44
+#define EMPTY      0x45
 
 #define FEND  0xc0
 #define FESC  0xdb
-#define TFEND   0xdc
-#define TFESC  0xdd
-
-#define cselect digitalWrite(CS,LOW)
-#define deselect digitalWrite(CS,HIGH)
+#define TFEND 0xdc
+#define TFESC 0xdd
 
 bool leo_usb2serial;
 
@@ -77,6 +75,20 @@ SPIFlash flash(CS);
 
 void setup() {
   // put your setup code here, to run once:
+  // Power Up UEXT
+  pinMode(CDONE, INPUT);
+  pinMode(RESET, OUTPUT);
+  pinMode(LED, OUTPUT);
+  digitalWrite(LED, LOW);
+  pinMode(CS, OUTPUT);
+  digitalWrite(CS, HIGH);
+  pinMode(UEXT_POWER, OUTPUT);
+  digitalWrite(UEXT_POWER, HIGH);
+  delay(1000);
+  digitalWrite(UEXT_POWER, LOW);
+  delay(500);
+  digitalWrite(RESET, HIGH);
+
   BUTTONINPUT;
   leo_usb2serial = false;
   if (!BBIT) {
@@ -86,19 +98,6 @@ void setup() {
     Serial1.begin(115200);
   }
   else {
-    // Power Up UEXT
-    pinMode(CDONE, INPUT);
-    pinMode(RESET, OUTPUT);
-    pinMode(LED, OUTPUT);
-    digitalWrite(LED, 0);
-    pinMode(CS, OUTPUT);
-    digitalWrite(CS, HIGH);
-    pinMode(UEXT_POWER, OUTPUT);
-    digitalWrite(UEXT_POWER, HIGH);
-    delay(1000);
-    digitalWrite(UEXT_POWER, LOW);
-    delay(500);
-    digitalWrite(RESET, HIGH);
     Serial.begin(230400);
     while (!Serial);
   }
@@ -119,66 +118,48 @@ void loop() {
     }
   }
   else {
-    if (readSerialFrame())
-    {
+    if (readSerialFrame()) {
       decodeFrame();
-      if (rfcs == 0xff)
-      {
+      if (rfcs == 0xff) {
         digitalWrite(RESET, LOW);
-
         switch (rxframe[0]) {
-
           case FEND:
             break;
-
           case READ_ID:
             SendID();
             break;
-
           case BULK_ERASE:
             flash_bulk_erase();
             break;
-
           case SEC_ERASE:
             flash.powerUp();
             secerase((rxframe[1] << 8) | rxframe[2]);
             flash.powerDown();
-
             break;
-
           case READ:
             flash.powerUp();
             readpage((rxframe[1] << 8) | rxframe[2]);
             flash.powerDown();
             break;
-
           case READ_ALL:
             readAllPages();
             break;
-
           case PROG:
             writepage((rxframe[1] << 8) | rxframe[2]);
             break;
-
           default:
             break;
-
-
         }//switch
         digitalWrite(RESET, HIGH);
-
       }
-
     }
   }
 }
-
 
 void secerase(uint32_t  sector) {
   flash.eraseBlock64K(sector << 8);
   startframe(READY);
   sendframe();
-
 }
 
 void decodeFrame(void) {
@@ -187,63 +168,48 @@ void decodeFrame(void) {
   y = 1;
   rfcs = rxframe[1];
   rxframe[0] = rxframe[1];
-  for (x = 2; x < 512; x++)
-  {
+  for (x = 2; x < 512; x++) {
     switch (rxframe[x]) {
-
       case FEND:
         x = 513;
         break;
-
       case FESC:
         escaped = true;
         break;
-
       case TFEND:
-        if (escaped)
-        {
+        if (escaped) {
           rxframe[y++] = FEND;
           rfcs += FEND;
           escaped = false;
         }
-        else
-        {
+        else {
           rxframe[y++] = TFEND;
           rfcs += TFEND;
         }
-
         break;
-
       case TFESC:
-        if (escaped)
-        {
+        if (escaped) {
           rxframe[y++] = FESC;
           rfcs += FESC;
           escaped = false;
         }
-        else
-        {
+        else {
           rxframe[y++] = TFESC;
           rfcs += TFESC;
         }
-
         break;
-
       default:
         escaped = false;
         rxframe[y++] = rxframe[x];
         rfcs += rxframe[x];
         break;
     }
-
   }
-
 }
 
 void writepage(int pagenr) {
   int x;
   flash.powerUp();
-
   for (x = 0; x < 256; x++)
     membuf[x] = rxframe[x + 3];
 
@@ -257,15 +223,10 @@ void writepage(int pagenr) {
 
   startframe(READY);
   sendframe();
-
-
 }
 
-
-
 //Reads a frame from Serial
-bool readSerialFrame(void)
-{
+bool readSerialFrame(void) {
   Serial.setTimeout(50);
 
   if (!Serial)
@@ -279,8 +240,7 @@ bool readSerialFrame(void)
   return false;
 }
 
-void flash_bulk_erase(void)
-{
+void flash_bulk_erase(void) {
   flash.powerUp();
   flash.eraseChip();
   flash.powerDown();
@@ -289,9 +249,7 @@ void flash_bulk_erase(void)
   sendframe();
 }
 
-void SendID(void)
-{
-
+void SendID(void) {
   flash.powerUp();
   uint32_t JEDEC = flash.getJEDECID();
   flash.powerDown();
@@ -316,15 +274,13 @@ void startframe(uint8_t command) {
   fcs = command;
 }
 
-void addbyte(uint8_t newbyte)
-{
+void addbyte(uint8_t newbyte) {
   fcs += newbyte;
-  if (newbyte == FEND)
-  {
+  if (newbyte == FEND) {
     txframe[txp++] = FESC;
     txframe[txp++] = TFEND;
-  } else if (newbyte == FESC)
-  {
+  }
+  else if (newbyte == FESC) {
     txframe[txp++] = FESC;
     txframe[txp++] = TFESC;
   } else
@@ -344,8 +300,7 @@ void readAllPages(void) {
   flash.powerDown();
 }
 
-void  readpage(uint16_t adr) {
-
+void readpage(uint16_t adr) {
   bool sendempty = true;
   //delay(5);
 
@@ -361,9 +316,7 @@ void  readpage(uint16_t adr) {
       sendframe();
       sendempty = false;
       break;
-
     }
-
   }
   if (sendempty) {
     startframe(EMPTY);
